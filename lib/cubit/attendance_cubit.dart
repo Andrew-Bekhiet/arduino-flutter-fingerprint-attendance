@@ -119,6 +119,24 @@ class AttendanceCubit extends Cubit<AttendanceState> {
     final currentState = state;
     if (currentState is! AttendanceStateConnected) return;
 
+    if (!_isValidSlotNumber(slotNumber)) {
+      emit(
+        currentState.copyWith(
+          message: 'Invalid slot number. Must be between 1 and 127.',
+        ),
+      );
+      return;
+    }
+
+    if (!_isValidStudentId(studentId)) {
+      emit(
+        currentState.copyWith(
+          message: 'Student ID cannot be empty.',
+        ),
+      );
+      return;
+    }
+
     emit(currentState.copyWith(isProcessing: true, clearMessage: true));
 
     await _repository.sendCommand(
@@ -133,9 +151,26 @@ class AttendanceCubit extends Cubit<AttendanceState> {
     final currentState = state;
     if (currentState is! AttendanceStateConnected) return;
 
+    if (!_isValidSlotNumber(slotNumber)) {
+      emit(
+        currentState.copyWith(
+          message: 'Invalid slot number. Must be between 1 and 127.',
+        ),
+      );
+      return;
+    }
+
     emit(currentState.copyWith(isProcessing: true, clearMessage: true));
     await _repository
         .sendCommand(DeleteFingerprintCommand(slotNumber: slotNumber));
+  }
+
+  bool _isValidSlotNumber(int slotNumber) {
+    return slotNumber >= 1 && slotNumber <= 127;
+  }
+
+  bool _isValidStudentId(String studentId) {
+    return studentId.trim().isNotEmpty;
   }
 
   void clearRecords() {

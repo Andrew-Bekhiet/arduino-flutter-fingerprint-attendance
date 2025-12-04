@@ -39,7 +39,7 @@ class _DeleteFingerprintDialogState extends State<DeleteFingerprintDialog> {
         FilledButton(
           onPressed: () {
             final slot = int.tryParse(slotController.text);
-            if (slot != null && slot >= 1 && slot <= 127) {
+            if (slot != null) {
               context.read<AttendanceCubit>().deleteFingerprint(slot);
               Navigator.pop(context);
             }

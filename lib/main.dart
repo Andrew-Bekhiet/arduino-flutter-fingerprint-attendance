@@ -1,6 +1,5 @@
 import 'package:fingerprint_attendance/cubit/attendance_cubit.dart';
 import 'package:fingerprint_attendance/cubit/attendance_state.dart';
-import 'package:fingerprint_attendance/models/attendance_record.dart';
 import 'package:fingerprint_attendance/repositories/arduino_repository.dart';
 import 'package:fingerprint_attendance/widgets/clear_records_dialog.dart';
 import 'package:fingerprint_attendance/widgets/delete_fingerprint_dialog.dart';
@@ -240,19 +239,19 @@ class ControlPanel extends StatelessWidget {
           const SizedBox(height: 12),
           StatCard(
             label: 'Total Records',
-            value: state.records.length.toString(),
+            value: state.totalRecordsCount.toString(),
             icon: Icons.event_note,
           ),
           const SizedBox(height: 8),
           StatCard(
             label: 'Enrolled Students',
-            value: state.students.length.toString(),
+            value: state.enrolledStudentsCount.toString(),
             icon: Icons.people,
           ),
           const SizedBox(height: 8),
           StatCard(
             label: "Today's Attendance",
-            value: _getTodayCount(state.records).toString(),
+            value: state.todayAttendanceCount.toString(),
             icon: Icons.today,
           ),
           if (state.isProcessing) ...[
@@ -267,14 +266,6 @@ class ControlPanel extends StatelessWidget {
         ],
       ),
     );
-  }
-
-  int _getTodayCount(List<AttendanceRecord> records) {
-    final now = DateTime.now();
-
-    return records
-        .where((record) => DateUtils.isSameDay(record.timestamp, now))
-        .length;
   }
 }
 
@@ -306,9 +297,6 @@ class AttendanceTable extends StatelessWidget {
         ),
       );
     }
-
-    final sortedRecords = List<AttendanceRecord>.from(state.records)
-      ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
 
     return Column(
       children: [
@@ -351,7 +339,7 @@ class AttendanceTable extends StatelessWidget {
                   DataColumn(label: Text('Date')),
                   DataColumn(label: Text('Time')),
                 ],
-                rows: sortedRecords.asMap().entries.map((entry) {
+                rows: state.sortedRecords.asMap().entries.map((entry) {
                   final index = entry.key;
                   final record = entry.value;
                   final student = state.students[record.studentId];

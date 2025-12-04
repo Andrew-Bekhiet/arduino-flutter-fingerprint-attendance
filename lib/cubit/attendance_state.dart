@@ -1,15 +1,17 @@
+import 'package:collection/collection.dart';
 import 'package:equatable/equatable.dart';
 import 'package:fingerprint_attendance/models/attendance_record.dart';
 import 'package:fingerprint_attendance/models/student.dart';
+import 'package:flutter/material.dart';
 
 sealed class AttendanceState with EquatableMixin {
   const AttendanceState();
 }
 
 final class AttendanceStateDisconnected extends AttendanceState {
-  const AttendanceStateDisconnected({this.availablePorts = const []});
-
   final List<String> availablePorts;
+
+  const AttendanceStateDisconnected({this.availablePorts = const []});
 
   @override
   List<Object?> get props => [availablePorts];
@@ -23,6 +25,11 @@ final class AttendanceStateConnecting extends AttendanceState {
 }
 
 final class AttendanceStateConnected extends AttendanceState {
+  final List<AttendanceRecord> records;
+  final Map<String, Student> students;
+  final String? message;
+  final bool isProcessing;
+
   const AttendanceStateConnected({
     required this.records,
     required this.students,
@@ -30,10 +37,15 @@ final class AttendanceStateConnected extends AttendanceState {
     this.isProcessing = false,
   });
 
-  final List<AttendanceRecord> records;
-  final Map<String, Student> students;
-  final String? message;
-  final bool isProcessing;
+  List<AttendanceRecord> get sortedRecords =>
+      records.sorted((a, b) => b.timestamp.compareTo(a.timestamp));
+
+  int get todayAttendanceCount => records
+      .where((record) => DateUtils.isSameDay(record.timestamp, DateTime.now()))
+      .length;
+
+  int get totalRecordsCount => records.length;
+  int get enrolledStudentsCount => students.length;
 
   AttendanceStateConnected copyWith({
     List<AttendanceRecord>? records,
@@ -55,9 +67,9 @@ final class AttendanceStateConnected extends AttendanceState {
 }
 
 final class AttendanceStateError extends AttendanceState {
-  const AttendanceStateError({required this.message});
-
   final String message;
+
+  const AttendanceStateError({required this.message});
 
   @override
   List<Object?> get props => [message];

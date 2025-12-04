@@ -55,7 +55,7 @@ class _EnrollFingerprintDialogState extends State<EnrollFingerprintDialog> {
           onPressed: () {
             final slot = int.tryParse(slotController.text);
             final id = idController.text;
-            if (slot != null && slot >= 1 && slot <= 127 && id.isNotEmpty) {
+            if (slot != null && id.isNotEmpty) {
               context.read<AttendanceCubit>().enrollFingerprint(slot, id);
               Navigator.pop(context);
             }
