@@ -18,8 +18,9 @@ class AttendanceCubit extends Cubit<AttendanceState> {
   final Map<String, Student> _students = {};
 
   Future<void> _init() async {
-    // final ports = await _repository.getAvailablePorts();
-    emit(const AttendanceStateDisconnected());
+    final ports = await _repository.getAvailablePorts();
+
+    emit(AttendanceStateDisconnected(availablePorts: ports));
   }
 
   Future<void> connect(String portName) async {
