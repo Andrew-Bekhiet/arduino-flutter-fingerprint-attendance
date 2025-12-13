@@ -2,85 +2,15 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:fingerprint_attendance/repositories/arduino_models/arduino_command.dart';
+import 'package:fingerprint_attendance/repositories/arduino_models/arduino_response.dart';
 import 'package:flutter_libserialport/flutter_libserialport.dart';
-
-sealed class ArduinoCommand {
-  const ArduinoCommand();
-  String get command;
-}
-
-final class EnrollFingerprintCommand extends ArduinoCommand {
-  const EnrollFingerprintCommand({
-    required this.slotNumber,
-    required this.studentId,
-  });
-
-  final int slotNumber;
-  final String studentId;
-
-  @override
-  String get command => 'e:$slotNumber:$studentId';
-}
-
-final class TakeAttendanceCommand extends ArduinoCommand {
-  const TakeAttendanceCommand();
-
-  @override
-  String get command => 'a';
-}
-
-final class DeleteFingerprintCommand extends ArduinoCommand {
-  const DeleteFingerprintCommand({required this.slotNumber});
-
-  final int slotNumber;
-
-  @override
-  String get command => 'd:$slotNumber';
-}
-
-sealed class ArduinoResponse {
-  const ArduinoResponse();
-}
-
-final class FingerprintEnrolledResponse extends ArduinoResponse {
-  const FingerprintEnrolledResponse({
-    required this.slotNumber,
-    required this.studentId,
-  });
-
-  final int slotNumber;
-  final String studentId;
-}
-
-final class AttendanceTakenResponse extends ArduinoResponse {
-  const AttendanceTakenResponse({required this.studentId});
-
-  final String studentId;
-}
-
-final class FingerprintDeletedResponse extends ArduinoResponse {
-  const FingerprintDeletedResponse({required this.slotNumber});
-
-  final int slotNumber;
-}
-
-final class ErrorResponse extends ArduinoResponse {
-  const ErrorResponse({required this.message});
-
-  final String message;
-}
-
-final class FingerprintNotRecognizedResponse extends ArduinoResponse {
-  const FingerprintNotRecognizedResponse();
-}
 
 class ArduinoRepository {
   SerialPort? _port;
-  SerialPortReader? _reader;
-  StreamSubscription<Uint8List>? _subscription;
+  SerialPortReader? _portReader;
+  StreamSubscription<Uint8List>? _readerSubscription;
   final _responseController = StreamController<ArduinoResponse>.broadcast();
-  String _buffer = '';
-  final Map<int, String> _slotToStudentId = {};
 
   Stream<ArduinoResponse> get responses => _responseController.stream;
 
@@ -90,7 +20,7 @@ class ArduinoRepository {
 
   Future<bool> connect(String portName) async {
     try {
-      _port = SerialPort(portName);
+      final port = SerialPort(portName);
 
       final config = SerialPortConfig()
         ..baudRate = 9600
@@ -98,14 +28,18 @@ class ArduinoRepository {
         ..stopBits = 1
         ..parity = SerialPortParity.none;
 
-      _port!.config = config;
+      port.config = config;
 
-      if (!_port!.openReadWrite()) {
+      final canControlArduino = port.openReadWrite();
+
+      if (!canControlArduino) {
         return false;
       }
 
-      _reader = SerialPortReader(_port!);
-      _subscription = _reader!.stream.listen(_handleData);
+      _portReader = SerialPortReader(port);
+      _readerSubscription = _portReader?.stream.listen(_handleData);
+
+      _port = port;
 
       return true;
     } catch (e) {
@@ -115,66 +49,102 @@ class ArduinoRepository {
 
   void _handleData(Uint8List data) {
     final text = utf8.decode(data);
-    _buffer += text;
 
-    final lines = _buffer.split('\n');
-    _buffer = lines.last;
+    final lines = text.split('\n');
 
-    for (var i = 0; i < lines.length - 1; i++) {
-      final line = lines[i].trim();
-      if (line.isNotEmpty) {
-        _parseResponse(line);
+    for (final line in lines) {
+      if (line.trim().isNotEmpty) {
+        _parseResponse(line.trim());
       }
     }
   }
 
   void _parseResponse(String line) {
-    if (line.startsWith('ENROLLED:')) {
-      final parts = line.substring(9).split(':');
-      if (parts.length == 2) {
+    switch (line) {
+      case 'READY':
+        _responseController.add(
+          const ReadyResponse(),
+        );
+
+      case 'PLACE_FINGER':
+        _responseController.add(
+          const PlaceFingerResponse(),
+        );
+
+      case 'REMOVE_FINGER':
+        _responseController.add(
+          const RemoveFingerResponse(),
+        );
+
+      case 'PLACE_SAME_FINGER':
+        _responseController.add(
+          const PlaceSameFingerResponse(),
+        );
+
+      case _ when line.startsWith('ENROLLED:'):
+        final parts = line.replaceFirst('ENROLLED:', '').split(':');
+
         final slotNumber = int.parse(parts[0]);
         final studentId = parts[1];
-        _slotToStudentId[slotNumber] = studentId;
+
         _responseController.add(
           FingerprintEnrolledResponse(
             slotNumber: slotNumber,
             studentId: studentId,
           ),
         );
-      }
-    } else if (line.startsWith('FOUND:')) {
-      final slotNumber = int.parse(line.substring(6));
-      final studentId = _slotToStudentId[slotNumber];
-      if (studentId != null) {
-        _responseController.add(AttendanceTakenResponse(studentId: studentId));
-      } else {
-        _responseController
-            .add(const ErrorResponse(message: 'Student ID not found'));
-      }
-    } else if (line.startsWith('DELETED:')) {
-      final slotNumber = int.parse(line.substring(8));
-      _slotToStudentId.remove(slotNumber);
-      _responseController
-          .add(FingerprintDeletedResponse(slotNumber: slotNumber));
-    } else if (line.startsWith('ERROR:')) {
-      _responseController.add(ErrorResponse(message: line.substring(6)));
-    } else if (line.contains('NOT FOUND')) {
-      _responseController.add(const FingerprintNotRecognizedResponse());
+
+      case _ when line.startsWith('FOUND:'):
+        final slotNumber = int.parse(line.replaceFirst('FOUND:', ''));
+
+        _responseController.add(
+          FingerprintFoundResponse(slotNumber: slotNumber),
+        );
+
+      case _ when line.startsWith('DELETED:'):
+        final slotNumber = int.parse(line.replaceFirst('DELETED:', ''));
+
+        _responseController.add(
+          FingerprintDeletedResponse(slotNumber: slotNumber),
+        );
+
+      case _ when line.startsWith('WARN:'):
+        _responseController.add(
+          WarningResponse(message: line.replaceFirst('WARN:', '')),
+        );
+
+      case _ when line.startsWith('RETRY:'):
+        final attempt = int.tryParse(line.replaceFirst('RETRY:', '')) ?? 0;
+
+        _responseController.add(
+          RetryResponse(attemptNumber: attempt),
+        );
+
+      case _ when line.startsWith('ERROR:'):
+        _responseController.add(
+          ErrorResponse(message: line.replaceFirst('ERROR:', '')),
+        );
+
+      default:
+        _responseController.add(
+          ErrorResponse(message: 'Unknown response: $line'),
+        );
     }
   }
 
   Future<void> sendCommand(ArduinoCommand command) async {
-    if (_port == null || !_port!.isOpen) {
+    final port = _port;
+    if (port == null || !port.isOpen) {
       throw Exception('Port not connected');
     }
 
     final data = utf8.encode('${command.command}\n');
-    _port!.write(Uint8List.fromList(data));
+    port.write(Uint8List.fromList(data));
   }
 
   Future<void> disconnect() async {
-    await _subscription?.cancel();
-    _reader?.close();
+    await _readerSubscription?.cancel();
+    _portReader?.close();
     _port?.close();
     _port?.dispose();
     _port = null;
