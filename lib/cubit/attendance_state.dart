@@ -11,17 +11,17 @@ sealed class AttendanceState with EquatableMixin {
 final class AttendanceStateDisconnected extends AttendanceState {
   final List<String> availablePorts;
 
-  const AttendanceStateDisconnected({this.availablePorts = const []});
-
   @override
   List<Object?> get props => [availablePorts];
+
+  const AttendanceStateDisconnected({this.availablePorts = const []});
 }
 
 final class AttendanceStateConnecting extends AttendanceState {
-  const AttendanceStateConnecting();
-
   @override
   List<Object?> get props => [];
+
+  const AttendanceStateConnecting();
 }
 
 final class AttendanceStateConnected extends AttendanceState {
@@ -29,13 +29,6 @@ final class AttendanceStateConnected extends AttendanceState {
   final Map<String, Student> students;
   final String? message;
   final bool isProcessing;
-
-  const AttendanceStateConnected({
-    required this.records,
-    required this.students,
-    this.message,
-    this.isProcessing = false,
-  });
 
   List<AttendanceRecord> get sortedRecords =>
       records.sorted((a, b) => b.timestamp.compareTo(a.timestamp));
@@ -46,6 +39,16 @@ final class AttendanceStateConnected extends AttendanceState {
 
   int get totalRecordsCount => records.length;
   int get enrolledStudentsCount => students.length;
+
+  @override
+  List<Object?> get props => [records, students, message, isProcessing];
+
+  const AttendanceStateConnected({
+    required this.records,
+    required this.students,
+    this.message,
+    this.isProcessing = false,
+  });
 
   AttendanceStateConnected copyWith({
     List<AttendanceRecord>? records,
@@ -61,16 +64,13 @@ final class AttendanceStateConnected extends AttendanceState {
       isProcessing: isProcessing ?? this.isProcessing,
     );
   }
-
-  @override
-  List<Object?> get props => [records, students, message, isProcessing];
 }
 
 final class AttendanceStateError extends AttendanceState {
   final String message;
 
-  const AttendanceStateError({required this.message});
-
   @override
   List<Object?> get props => [message];
+
+  const AttendanceStateError({required this.message});
 }

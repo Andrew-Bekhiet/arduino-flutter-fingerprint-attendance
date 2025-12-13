@@ -14,12 +14,6 @@ class _DeleteFingerprintDialogState extends State<DeleteFingerprintDialog> {
   final slotController = TextEditingController();
 
   @override
-  void dispose() {
-    slotController.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
     return AlertDialog(
       title: const Text('Delete Fingerprint'),
@@ -48,5 +42,11 @@ class _DeleteFingerprintDialogState extends State<DeleteFingerprintDialog> {
         ),
       ],
     );
+  }
+
+  @override
+  void dispose() {
+    slotController.dispose();
+    super.dispose();
   }
 }

@@ -54,6 +54,8 @@ class AttendanceScreen extends StatelessWidget {
       ),
       body: BlocConsumer<AttendanceCubit, AttendanceState>(
         listener: (context, state) {
+          // Uses pattern matching
+          // ignore: prefer_early_return
           if (state case AttendanceStateConnected(:final message?)) {
             final cubit = context.read<AttendanceCubit>();
 

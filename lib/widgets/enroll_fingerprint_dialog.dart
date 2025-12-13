@@ -15,13 +15,6 @@ class _EnrollFingerprintDialogState extends State<EnrollFingerprintDialog> {
   final idController = TextEditingController();
 
   @override
-  void dispose() {
-    slotController.dispose();
-    idController.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
     return AlertDialog(
       title: const Text('Enroll Fingerprint'),
@@ -64,5 +57,12 @@ class _EnrollFingerprintDialogState extends State<EnrollFingerprintDialog> {
         ),
       ],
     );
+  }
+
+  @override
+  void dispose() {
+    slotController.dispose();
+    idController.dispose();
+    super.dispose();
   }
 }

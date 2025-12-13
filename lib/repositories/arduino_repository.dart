@@ -150,8 +150,8 @@ class ArduinoRepository {
     _port = null;
   }
 
-  void dispose() {
-    _responseController.close();
-    disconnect();
+  Future<void> dispose() async {
+    await _responseController.close();
+    await disconnect();
   }
 }

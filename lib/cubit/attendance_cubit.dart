@@ -3,22 +3,26 @@ import 'dart:async';
 import 'package:fingerprint_attendance/cubit/attendance_state.dart';
 import 'package:fingerprint_attendance/models/attendance_record.dart';
 import 'package:fingerprint_attendance/models/student.dart';
+import 'package:fingerprint_attendance/repositories/arduino_models/arduino_command.dart';
+import 'package:fingerprint_attendance/repositories/arduino_models/arduino_response.dart';
 import 'package:fingerprint_attendance/repositories/arduino_repository.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 class AttendanceCubit extends Cubit<AttendanceState> {
-  AttendanceCubit(this._repository)
+  final ArduinoRepository _arduinoRepo;
+  StreamSubscription<ArduinoResponse>? _responseSubscription;
+
+  final List<AttendanceRecord> _attendanceRecords = [];
+  final Map<String, Student> _students = {};
+  final Map<int, String> _slotToStudentId = {};
+
+  AttendanceCubit(this._arduinoRepo)
       : super(const AttendanceStateDisconnected()) {
     _init();
   }
 
-  final ArduinoRepository _repository;
-  StreamSubscription<ArduinoResponse>? _responseSubscription;
-  final List<AttendanceRecord> _records = [];
-  final Map<String, Student> _students = {};
-
   Future<void> _init() async {
-    final ports = await _repository.getAvailablePorts();
+    final ports = await _arduinoRepo.getAvailablePorts();
 
     emit(AttendanceStateDisconnected(availablePorts: ports));
   }
@@ -26,12 +30,17 @@ class AttendanceCubit extends Cubit<AttendanceState> {
   Future<void> connect(String portName) async {
     emit(const AttendanceStateConnecting());
 
-    final success = await _repository.connect(portName);
+    final success = await _arduinoRepo.connect(portName);
     if (success) {
-      _responseSubscription = _repository.responses.listen(_handleResponse);
-      emit(AttendanceStateConnected(records: _records, students: _students));
+      _responseSubscription = _arduinoRepo.responses.listen(_handleResponse);
+      emit(
+        AttendanceStateConnected(
+          records: _attendanceRecords,
+          students: _students,
+        ),
+      );
     } else {
-      final ports = await _repository.getAvailablePorts();
+      final ports = await _arduinoRepo.getAvailablePorts();
       emit(AttendanceStateDisconnected(availablePorts: ports));
     }
   }
@@ -41,20 +50,43 @@ class AttendanceCubit extends Cubit<AttendanceState> {
     if (currentState is! AttendanceStateConnected) return;
 
     switch (response) {
-      case AttendanceTakenResponse():
-        _records.add(
-          AttendanceRecord(
-            studentId: response.studentId,
-            timestamp: DateTime.now(),
-          ),
-        );
-        emit(
-          currentState.copyWith(
-            records: List.from(_records),
-            message: 'Attendance recorded for ${response.studentId}',
-            isProcessing: false,
-          ),
-        );
+      case ReadyResponse():
+        emit(currentState.copyWith(message: 'Sensor ready'));
+
+      case PlaceFingerResponse():
+        emit(currentState.copyWith(message: 'Place finger on sensor...'));
+
+      case RemoveFingerResponse():
+        emit(currentState.copyWith(message: 'Remove finger'));
+
+      case PlaceSameFingerResponse():
+        emit(currentState.copyWith(message: 'Place same finger again...'));
+
+      case FingerprintFoundResponse():
+        final studentId = _slotToStudentId[response.slotNumber];
+
+        if (studentId != null) {
+          _attendanceRecords.add(
+            AttendanceRecord(
+              studentId: studentId,
+              timestamp: DateTime.now(),
+            ),
+          );
+          emit(
+            currentState.copyWith(
+              records: List.from(_attendanceRecords),
+              message: 'Attendance recorded for $studentId',
+              isProcessing: false,
+            ),
+          );
+        } else {
+          emit(
+            currentState.copyWith(
+              message: 'Fingerprint not registered in app',
+              isProcessing: false,
+            ),
+          );
+        }
 
       case FingerprintEnrolledResponse():
         final student = Student(
@@ -63,6 +95,8 @@ class AttendanceCubit extends Cubit<AttendanceState> {
           slotNumber: response.slotNumber,
         );
         _students[response.studentId] = student;
+        _slotToStudentId[response.slotNumber] = response.studentId;
+
         emit(
           currentState.copyWith(
             students: Map.from(_students),
@@ -72,29 +106,47 @@ class AttendanceCubit extends Cubit<AttendanceState> {
         );
 
       case FingerprintDeletedResponse():
-        final studentId = _students.entries
-            .firstWhere(
-              (e) => e.value.slotNumber == response.slotNumber,
-              orElse: () =>
-                  const MapEntry('', Student(id: '', name: '', slotNumber: 0)),
-            )
-            .key;
-        if (studentId.isNotEmpty) {
+        final studentId = _slotToStudentId.remove(response.slotNumber);
+
+        if (studentId != null) {
           _students.remove(studentId);
         }
+
         emit(
           currentState.copyWith(
-            students: Map.from(_students),
+            students: {..._students},
             message: 'Fingerprint deleted',
             isProcessing: false,
           ),
         );
 
-      case FingerprintNotRecognizedResponse():
+      case AllFingerprintsDeletedResponse():
+        _slotToStudentId.clear();
+        _students.clear();
+
+        emit(
+          currentState.copyWith(
+            students: {..._students},
+            message: 'All fingerprints deleted',
+            isProcessing: false,
+          ),
+        );
+
+      case FingerprintNotFoundResponse():
         emit(
           currentState.copyWith(
             message: 'Fingerprint not recognized',
             isProcessing: false,
+          ),
+        );
+
+      case WarningResponse():
+        emit(currentState.copyWith(message: response.message));
+
+      case RetryResponse():
+        emit(
+          currentState.copyWith(
+            message: 'Retrying... Attempt ${response.attemptNumber} of 3',
           ),
         );
 
@@ -113,7 +165,7 @@ class AttendanceCubit extends Cubit<AttendanceState> {
     if (currentState is! AttendanceStateConnected) return;
 
     emit(currentState.copyWith(isProcessing: true, clearMessage: true));
-    await _repository.sendCommand(const TakeAttendanceCommand());
+    await _arduinoRepo.sendCommand(const TakeAttendanceCommand());
   }
 
   Future<void> enrollFingerprint(int slotNumber, String studentId) async {
@@ -126,6 +178,7 @@ class AttendanceCubit extends Cubit<AttendanceState> {
           message: 'Invalid slot number. Must be between 1 and 127.',
         ),
       );
+
       return;
     }
 
@@ -135,12 +188,13 @@ class AttendanceCubit extends Cubit<AttendanceState> {
           message: 'Student ID cannot be empty.',
         ),
       );
+
       return;
     }
 
     emit(currentState.copyWith(isProcessing: true, clearMessage: true));
 
-    await _repository.sendCommand(
+    await _arduinoRepo.sendCommand(
       EnrollFingerprintCommand(
         slotNumber: slotNumber,
         studentId: studentId,
@@ -158,11 +212,12 @@ class AttendanceCubit extends Cubit<AttendanceState> {
           message: 'Invalid slot number. Must be between 1 and 127.',
         ),
       );
+
       return;
     }
 
     emit(currentState.copyWith(isProcessing: true, clearMessage: true));
-    await _repository
+    await _arduinoRepo
         .sendCommand(DeleteFingerprintCommand(slotNumber: slotNumber));
   }
 
@@ -171,17 +226,17 @@ class AttendanceCubit extends Cubit<AttendanceState> {
   }
 
   bool _isValidStudentId(String studentId) {
-    return studentId.trim().isNotEmpty;
+    return int.tryParse(studentId) != null;
   }
 
   void clearRecords() {
     final currentState = state;
     if (currentState is! AttendanceStateConnected) return;
 
-    _records.clear();
+    _attendanceRecords.clear();
     emit(
       currentState.copyWith(
-        records: List.from(_records),
+        records: List.from(_attendanceRecords),
         message: 'Records cleared',
       ),
     );
@@ -195,9 +250,9 @@ class AttendanceCubit extends Cubit<AttendanceState> {
   }
 
   @override
-  Future<void> close() {
-    _responseSubscription?.cancel();
-    _repository.dispose();
-    return super.close();
+  Future<void> close() async {
+    await _responseSubscription?.cancel();
+    await _arduinoRepo.dispose();
+    await super.close();
   }
 }
