@@ -18,7 +18,7 @@ class AttendanceScreen extends StatelessWidget {
         elevation: 2,
         actions: [
           IconButton(
-            icon: const Icon(Icons.clear),
+            icon: const Icon(Icons.usb_off),
             onPressed: context.read<AttendanceCubit>().disconnect,
           ),
         ],

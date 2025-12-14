@@ -26,6 +26,7 @@ class MainApp extends StatelessWidget {
       create: (_) => AttendanceCubit(ArduinoRepository(), storageRepository),
       child: MaterialApp(
         title: 'Fingerprint Attendance Tracker',
+        debugShowCheckedModeBanner: false,
         theme: ThemeData(
           colorScheme: ColorScheme.fromSeed(
             seedColor: Colors.deepPurple,

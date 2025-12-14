@@ -1,3 +1,5 @@
+import 'package:collection/collection.dart';
+import 'package:fingerprint_attendance/models/attendance_record.dart';
 import 'package:hive_ce_flutter/hive_flutter.dart';
 import 'package:intl/intl.dart';
 
@@ -5,19 +7,24 @@ import 'package:intl/intl.dart';
 ///
 /// Uses Hive boxes for storage:
 /// - `students` box: Maps studentId -> studentName
+/// - `attendance_dates` box: Tracks all dates with attendance records
 /// - `attendance_YYYY-MM-DD` boxes: Maps studentId -> ISO DateTime string
 class StorageRepository {
   static const String _studentsBoxName = 'students';
+  static const String _attendanceDatesBoxName = 'attendance_dates';
   static const String _attendancePrefix = 'attendance_';
 
   late Box<String> _studentsBox;
+  late Box<String> _attendanceDatesBox;
 
   Box<String> get studentsBox => _studentsBox;
+  Box<String> get attendanceDatesBox => _attendanceDatesBox;
 
-  /// Initialize Hive and open the students box.
+  /// Initialize Hive and open the students and attendance dates boxes.
   Future<void> init() async {
     await Hive.initFlutter();
     _studentsBox = await Hive.openBox<String>(_studentsBoxName);
+    _attendanceDatesBox = await Hive.openBox<String>(_attendanceDatesBoxName);
   }
 
   /// Get or create an attendance box for a specific date.
@@ -43,8 +50,8 @@ class StorageRepository {
     return studentsBox.get(studentId);
   }
 
-  /// Get all student names as a map.
-  Map<String, String> getAllStudentNames() {
+  /// Get all student names as a map of id to name.
+  Map<String, String> getStudentNamesById() {
     return Map<String, String>.from(studentsBox.toMap());
   }
 
@@ -65,6 +72,12 @@ class StorageRepository {
     final box = await _getAttendanceBox(timestamp);
     final isoDateTime = timestamp.toIso8601String();
     await box.put(studentId, isoDateTime);
+
+    // Track this date in the attendance dates box
+    final dateKey = DateFormat('yyyy-MM-dd').format(timestamp);
+    if (!_attendanceDatesBox.containsKey(dateKey)) {
+      await _attendanceDatesBox.put(dateKey, dateKey);
+    }
   }
 
   /// Get attendance records for a specific date.
@@ -91,14 +104,41 @@ class StorageRepository {
   Future<void> clearAttendanceForDate(DateTime date) async {
     final box = await _getAttendanceBox(date);
     await box.clear();
+
+    // Remove from attendance dates tracking
+    final dateKey = DateFormat('yyyy-MM-dd').format(date);
+    await _attendanceDatesBox.delete(dateKey);
   }
 
-  /// Get all attendance box names (for listing all attendance dates).
-  Future<List<String>> getAllAttendanceDates() async {
-    // This requires listing all boxes, which Hive doesn't directly support.
-    // We would need to track this separately or scan the directory.
-    // For now, return an empty list - this can be enhanced later.
-    return [];
+  /// Get all attendance dates that have records.
+  List<DateTime> getAllAttendanceDates() {
+    return _attendanceDatesBox.keys
+        .map((key) => DateTime.parse(key.toString()))
+        .sortedBy((d) => d)
+        .toList();
+  }
+
+  /// Load all attendance records from all tracked dates.
+  Future<List<AttendanceRecord>> loadAllAttendanceRecords() async {
+    final allRecords = <AttendanceRecord>[];
+
+    for (final dateKey in _attendanceDatesBox.keys) {
+      final date = DateTime.parse(dateKey.toString());
+      final box = await _getAttendanceBox(date);
+
+      for (final entry in box.toMap().entries) {
+        allRecords.add(
+          AttendanceRecord(
+            studentId: entry.key.toString(),
+            timestamp: DateTime.parse(entry.value),
+          ),
+        );
+      }
+    }
+
+    // Sort by timestamp, most recent first
+    allRecords.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    return allRecords;
   }
 
   /// Dispose resources.

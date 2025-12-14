@@ -16,8 +16,8 @@ class AttendanceCubit extends Cubit<AttendanceState> {
   final StorageRepository _storageRepo;
   StreamSubscription<ArduinoResponse>? _responseSubscription;
 
-  final List<AttendanceRecord> _attendanceRecords = [];
-  final Map<String, Student> _students = {};
+  List<AttendanceRecord> _attendanceRecords = [];
+  Map<String, Student> _students = {};
 
   // Temporary storage for pending enrollment
   String? _pendingStudentName;
@@ -43,6 +43,10 @@ class AttendanceCubit extends Cubit<AttendanceState> {
     final success = await _arduinoRepo.connect(portName);
     if (success) {
       _responseSubscription = _arduinoRepo.responses.listen(_handleResponse);
+
+      // Load attendance records from Hive storage first
+      await _loadAttendanceFromStorage();
+
       emit(
         AttendanceStateConnected(
           records: _attendanceRecords,
@@ -50,12 +54,29 @@ class AttendanceCubit extends Cubit<AttendanceState> {
         ),
       );
       await stream.firstWhere((state) => state is AttendanceStateConnected);
-      // Sync enrolled fingerprints from Arduino EEPROM
       await loadEnrolledFingerprints();
     } else {
       final ports = await _arduinoRepo.getAvailablePorts();
       emit(AttendanceStateDisconnected(availablePorts: ports));
     }
+  }
+
+  /// Load attendance records from Hive storage.
+  Future<void> _loadAttendanceFromStorage() async {
+    final storedRecords = await _storageRepo.loadAllAttendanceRecords();
+
+    _attendanceRecords = storedRecords;
+
+    _students = {
+      ..._students,
+      for (final record in _attendanceRecords)
+        record.studentId: Student(
+          id: record.studentId,
+          name: _storageRepo.getStudentName(record.studentId) ??
+              'Student ${record.studentId}',
+          slotNumber: -1, // Unknown slot number
+        ),
+    };
   }
 
   Future<void> loadEnrolledFingerprints() async {
@@ -103,37 +124,30 @@ class AttendanceCubit extends Cubit<AttendanceState> {
 
         final timestamp = DateTime.now();
 
-        _attendanceRecords.add(
+        _attendanceRecords = [
+          ..._attendanceRecords,
           AttendanceRecord(
             studentId: studentId,
             timestamp: timestamp,
           ),
-        );
+        ];
 
         // Record attendance in Hive storage
         await _storageRepo.recordAttendance(studentId, timestamp);
 
-        // Also update local cache if we don't have this student
-        if (!_students.containsKey(studentId)) {
-          final studentName = _storageRepo.getStudentName(studentId);
-          final student = Student(
-            id: studentId,
-            name: studentName ?? 'Student $studentId',
-            slotNumber: slotNumber,
-          );
-          _students[studentId] = student;
-
-          final current = state;
-          if (current is AttendanceStateConnected) {
-            emit(current.copyWith(students: Map.from(_students)));
-          }
-        }
+        final studentName = _storageRepo.getStudentName(studentId);
+        final student = Student(
+          id: studentId,
+          name: studentName ?? 'Student $studentId',
+          slotNumber: slotNumber,
+        );
+        _students = {..._students, studentId: student};
 
         final displayName = _students[studentId]?.name ?? studentId;
         emit(
           currentState.copyWith(
-            records: List.from(_attendanceRecords),
-            students: Map.from(_students),
+            records: _attendanceRecords,
+            students: _students,
             message: 'Attendance recorded for $displayName',
             isProcessing: false,
           ),
@@ -149,14 +163,14 @@ class AttendanceCubit extends Cubit<AttendanceState> {
           name: studentName,
           slotNumber: slotNumber,
         );
-        _students[studentId] = student;
+        _students = {..._students, studentId: student};
 
         // Save student name to Hive storage
         await _storageRepo.saveStudentName(studentId, studentName);
 
         emit(
           currentState.copyWith(
-            students: Map.from(_students),
+            students: _students,
             message: 'Fingerprint enrolled for $studentName',
             isProcessing: false,
           ),
@@ -193,12 +207,12 @@ class AttendanceCubit extends Cubit<AttendanceState> {
         }
 
       case AllFingerprintsDeletedResponse():
-        _students.clear();
+        _students = {};
         await _storageRepo.clearAllStudentNames();
 
         emit(
           currentState.copyWith(
-            students: {..._students},
+            students: _students,
             message: 'All fingerprints deleted',
             isProcessing: false,
           ),
@@ -213,7 +227,6 @@ class AttendanceCubit extends Cubit<AttendanceState> {
         );
 
       case ListStartResponse():
-        _students.clear();
         emit(
           currentState.copyWith(message: 'Loading enrolled fingerprints...'),
         );
@@ -227,17 +240,17 @@ class AttendanceCubit extends Cubit<AttendanceState> {
           name: savedName ?? 'Student $studentId',
           slotNumber: slotNumber,
         );
-        _students[studentId] = student;
+        _students = {..._students, studentId: student};
 
         final current = state;
         if (current is AttendanceStateConnected) {
-          emit(current.copyWith(students: Map.from(_students)));
+          emit(current.copyWith(students: _students));
         }
 
       case ListEndResponse():
         emit(
           currentState.copyWith(
-            students: Map.from(_students),
+            students: _students,
             message: 'Loaded ${_students.length} enrolled fingerprints',
             isProcessing: false,
           ),
@@ -350,10 +363,10 @@ class AttendanceCubit extends Cubit<AttendanceState> {
     final currentState = state;
     if (currentState is! AttendanceStateConnected) return;
 
-    _attendanceRecords.clear();
+    _attendanceRecords = [];
     emit(
       currentState.copyWith(
-        records: List.from(_attendanceRecords),
+        records: _attendanceRecords,
         message: 'Records cleared',
       ),
     );
