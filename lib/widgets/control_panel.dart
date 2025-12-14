@@ -1,6 +1,7 @@
 import 'package:fingerprint_attendance/cubit/attendance_cubit.dart';
 import 'package:fingerprint_attendance/cubit/attendance_state.dart';
 import 'package:fingerprint_attendance/widgets/clear_records_dialog.dart';
+import 'package:fingerprint_attendance/widgets/delete_all_fingerprints_dialog.dart';
 import 'package:fingerprint_attendance/widgets/delete_fingerprint_dialog.dart';
 import 'package:fingerprint_attendance/widgets/enroll_fingerprint_dialog.dart';
 import 'package:fingerprint_attendance/widgets/stat_card.dart';
@@ -63,6 +64,21 @@ class ControlPanel extends StatelessWidget {
                     ),
             icon: const Icon(Icons.delete_outline),
             label: const Text('Delete Fingerprint'),
+          ),
+          const SizedBox(height: 12),
+          OutlinedButton.icon(
+            onPressed: isProcessing || state.students.isEmpty
+                ? null
+                : () => showDialog<void>(
+                      context: context,
+                      builder: (dialogContext) =>
+                          const DeleteAllFingerprintsDialog(),
+                    ),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: Theme.of(context).colorScheme.error,
+            ),
+            icon: const Icon(Icons.delete_forever),
+            label: const Text('Delete All Fingerprints'),
           ),
           const SizedBox(height: 12),
           TextButton.icon(

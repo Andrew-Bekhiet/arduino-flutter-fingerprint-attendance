@@ -1,30 +1,36 @@
 import 'dart:async';
 
+import 'package:collection/collection.dart';
 import 'package:fingerprint_attendance/cubit/attendance_state.dart';
 import 'package:fingerprint_attendance/models/attendance_record.dart';
 import 'package:fingerprint_attendance/models/student.dart';
 import 'package:fingerprint_attendance/repositories/arduino_models/arduino_command.dart';
 import 'package:fingerprint_attendance/repositories/arduino_models/arduino_response.dart';
 import 'package:fingerprint_attendance/repositories/arduino_repository.dart';
+import 'package:fingerprint_attendance/repositories/storage_repository.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 class AttendanceCubit extends Cubit<AttendanceState> {
   final ArduinoRepository _arduinoRepo;
+  final StorageRepository _storageRepo;
   StreamSubscription<ArduinoResponse>? _responseSubscription;
 
   final List<AttendanceRecord> _attendanceRecords = [];
   final Map<String, Student> _students = {};
-  final Map<int, String> _slotToStudentId = {};
 
-  AttendanceCubit(this._arduinoRepo)
+  // Temporary storage for pending enrollment
+  String? _pendingStudentName;
+
+  AttendanceCubit(this._arduinoRepo, this._storageRepo)
       : super(const AttendanceStateDisconnected()) {
     _init();
   }
 
-  Future<void> _init() async {
+  Future<void> _init([bool connectNow = true]) async {
     final ports = await _arduinoRepo.getAvailablePorts();
 
-    if (ports.length == 1) {
+    if (connectNow && ports.length == 1) {
       await connect(ports.single);
     } else {
       emit(AttendanceStateDisconnected(availablePorts: ports));
@@ -60,7 +66,7 @@ class AttendanceCubit extends Cubit<AttendanceState> {
     await _arduinoRepo.sendCommand(const ListEnrolledCommand());
   }
 
-  void _handleResponse(ArduinoResponse response) {
+  Future<void> _handleResponse(ArduinoResponse response) async {
     final currentState = state;
     if (currentState is! AttendanceStateConnected) return;
 
@@ -77,72 +83,118 @@ class AttendanceCubit extends Cubit<AttendanceState> {
       case PlaceSameFingerResponse():
         emit(currentState.copyWith(message: 'Place same finger again...'));
 
-      case FingerprintFoundResponse():
-        // Arduino now sends studentId directly from EEPROM
-        final studentId = response.studentId;
+      case FingerprintFoundResponse(:final studentId, :final slotNumber):
+        final attendanceAlreadyRecorded = _attendanceRecords.any(
+          (record) =>
+              record.studentId == studentId &&
+              DateUtils.isSameDay(record.timestamp, DateTime.now()),
+        );
+
+        if (attendanceAlreadyRecorded) {
+          emit(
+            currentState.copyWith(
+              message:
+                  'Attendance already recorded for ${_students[studentId]?.name ?? studentId} today',
+              isProcessing: false,
+            ),
+          );
+          return;
+        }
+
+        final timestamp = DateTime.now();
 
         _attendanceRecords.add(
           AttendanceRecord(
             studentId: studentId,
-            timestamp: DateTime.now(),
+            timestamp: timestamp,
           ),
         );
 
+        // Record attendance in Hive storage
+        await _storageRepo.recordAttendance(studentId, timestamp);
+
         // Also update local cache if we don't have this student
         if (!_students.containsKey(studentId)) {
+          final studentName = _storageRepo.getStudentName(studentId);
           final student = Student(
             id: studentId,
-            name: 'Student $studentId',
-            slotNumber: response.slotNumber,
+            name: studentName ?? 'Student $studentId',
+            slotNumber: slotNumber,
           );
           _students[studentId] = student;
-          _slotToStudentId[response.slotNumber] = studentId;
+
+          final current = state;
+          if (current is AttendanceStateConnected) {
+            emit(current.copyWith(students: Map.from(_students)));
+          }
         }
 
+        final displayName = _students[studentId]?.name ?? studentId;
         emit(
           currentState.copyWith(
             records: List.from(_attendanceRecords),
             students: Map.from(_students),
-            message: 'Attendance recorded for $studentId',
+            message: 'Attendance recorded for $displayName',
             isProcessing: false,
           ),
         );
 
-      case FingerprintEnrolledResponse():
+      case FingerprintEnrolledResponse(:final slotNumber, :final studentId):
+        // Use pending name or default
+        final studentName = _pendingStudentName ?? 'Student $studentId';
+        _pendingStudentName = null;
+
         final student = Student(
-          id: response.studentId,
-          name: 'Student ${response.studentId}',
-          slotNumber: response.slotNumber,
+          id: studentId,
+          name: studentName,
+          slotNumber: slotNumber,
         );
-        _students[response.studentId] = student;
-        _slotToStudentId[response.slotNumber] = response.studentId;
+        _students[studentId] = student;
+
+        // Save student name to Hive storage
+        await _storageRepo.saveStudentName(studentId, studentName);
 
         emit(
           currentState.copyWith(
             students: Map.from(_students),
-            message: 'Fingerprint enrolled successfully',
+            message: 'Fingerprint enrolled for $studentName',
             isProcessing: false,
           ),
         );
 
-      case FingerprintDeletedResponse():
-        final studentId = _slotToStudentId.remove(response.slotNumber);
+      case FingerprintDeletedResponse(:final slotNumber):
+        final MapEntry<String, Student>? studentEntry =
+            _students.entries.firstWhereOrNull(
+          (s) => s.value.slotNumber == slotNumber,
+        );
 
-        if (studentId != null) {
-          _students.remove(studentId);
+        if (studentEntry != null) {
+          _students.remove(studentEntry.key);
+
+          final student = studentEntry.value;
+
+          await _storageRepo.deleteStudentName(student.id);
+
+          emit(
+            currentState.copyWith(
+              students: {..._students},
+              message: 'Fingerprint deleted for ${student.name}',
+              isProcessing: false,
+            ),
+          );
+        } else {
+          emit(
+            currentState.copyWith(
+              students: {..._students},
+              message: 'Fingerprint deleted',
+              isProcessing: false,
+            ),
+          );
         }
 
-        emit(
-          currentState.copyWith(
-            students: {..._students},
-            message: 'Fingerprint deleted',
-            isProcessing: false,
-          ),
-        );
-
       case AllFingerprintsDeletedResponse():
-        _slotToStudentId.clear();
         _students.clear();
+        await _storageRepo.clearAllStudentNames();
 
         emit(
           currentState.copyWith(
@@ -161,22 +213,26 @@ class AttendanceCubit extends Cubit<AttendanceState> {
         );
 
       case ListStartResponse():
-        // Clear local cache before receiving list from Arduino
         _students.clear();
-        _slotToStudentId.clear();
         emit(
           currentState.copyWith(message: 'Loading enrolled fingerprints...'),
         );
 
-      case SlotInfoResponse():
+      case SlotInfoResponse(:final slotNumber, :final studentId):
         // Arduino sends enrolled fingerprint info from EEPROM
+        // Try to load saved name from Hive storage
+        final savedName = _storageRepo.getStudentName(studentId);
         final student = Student(
-          id: response.studentId,
-          name: 'Student ${response.studentId}',
-          slotNumber: response.slotNumber,
+          id: studentId,
+          name: savedName ?? 'Student $studentId',
+          slotNumber: slotNumber,
         );
-        _students[response.studentId] = student;
-        _slotToStudentId[response.slotNumber] = response.studentId;
+        _students[studentId] = student;
+
+        final current = state;
+        if (current is AttendanceStateConnected) {
+          emit(current.copyWith(students: Map.from(_students)));
+        }
 
       case ListEndResponse():
         emit(
@@ -187,20 +243,20 @@ class AttendanceCubit extends Cubit<AttendanceState> {
           ),
         );
 
-      case WarningResponse():
-        emit(currentState.copyWith(message: response.message));
+      case WarningResponse(:final message):
+        emit(currentState.copyWith(message: message));
 
-      case RetryResponse():
+      case RetryResponse(:final attemptNumber):
         emit(
           currentState.copyWith(
-            message: 'Retrying... Attempt ${response.attemptNumber} of 3',
+            message: 'Retrying... Attempt $attemptNumber of 3',
           ),
         );
 
-      case ErrorResponse():
+      case ErrorResponse(:final message):
         emit(
           currentState.copyWith(
-            message: response.message,
+            message: message,
             isProcessing: false,
           ),
         );
@@ -215,7 +271,11 @@ class AttendanceCubit extends Cubit<AttendanceState> {
     emit(currentState.copyWith(isProcessing: true, clearMessage: true));
   }
 
-  Future<void> enrollFingerprint(int slotNumber, String studentId) async {
+  Future<void> enrollFingerprint(
+    int slotNumber,
+    String studentId, {
+    String? studentName,
+  }) async {
     final currentState = state;
     if (currentState is! AttendanceStateConnected) return;
 
@@ -239,8 +299,10 @@ class AttendanceCubit extends Cubit<AttendanceState> {
       return;
     }
 
-    emit(currentState.copyWith(isProcessing: true, clearMessage: true));
+    // Store pending name for when enrollment completes
+    _pendingStudentName = studentName;
 
+    emit(currentState.copyWith(isProcessing: true, clearMessage: true));
     await _arduinoRepo.sendCommand(
       EnrollFingerprintCommand(
         slotNumber: slotNumber,
@@ -266,6 +328,14 @@ class AttendanceCubit extends Cubit<AttendanceState> {
     emit(currentState.copyWith(isProcessing: true, clearMessage: true));
     await _arduinoRepo
         .sendCommand(DeleteFingerprintCommand(slotNumber: slotNumber));
+  }
+
+  Future<void> deleteAllFingerprints() async {
+    final currentState = state;
+    if (currentState is! AttendanceStateConnected) return;
+
+    emit(currentState.copyWith(isProcessing: true, clearMessage: true));
+    await _arduinoRepo.sendCommand(const DeleteAllFingerprintsCommand());
   }
 
   bool _isValidSlotNumber(int slotNumber) {
@@ -319,6 +389,6 @@ class AttendanceCubit extends Cubit<AttendanceState> {
 
   Future<void> disconnect() async {
     await _arduinoRepo.disconnect();
-    await _init();
+    await _init(false);
   }
 }
