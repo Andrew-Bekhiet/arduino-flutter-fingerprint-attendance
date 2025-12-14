@@ -46,7 +46,6 @@ void setup()
     delay(5000);
   }
 
-  Serial.println("READY");
   printMenu();
 }
 
@@ -70,6 +69,7 @@ void printMenu()
   Serial.println();
   Serial.println("=================================");
   Serial.println();
+  Serial.println("READY");
 }
 
 void loop()

@@ -14,6 +14,8 @@ class ControlPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isProcessing = false ?? state.isProcessing;
+
     return DecoratedBox(
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surfaceContainerHighest,
@@ -32,7 +34,7 @@ class ControlPanel extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           FilledButton.tonalIcon(
-            onPressed: state.isProcessing
+            onPressed: isProcessing
                 ? null
                 : () => context.read<AttendanceCubit>().takeAttendance(),
             icon: const Icon(Icons.fingerprint),
@@ -40,7 +42,7 @@ class ControlPanel extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           FilledButton.icon(
-            onPressed: state.isProcessing
+            onPressed: isProcessing
                 ? null
                 : () => showDialog<void>(
                       context: context,
@@ -52,7 +54,7 @@ class ControlPanel extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           OutlinedButton.icon(
-            onPressed: state.isProcessing
+            onPressed: isProcessing
                 ? null
                 : () => showDialog<void>(
                       context: context,

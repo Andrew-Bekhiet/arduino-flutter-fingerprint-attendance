@@ -24,7 +24,11 @@ class AttendanceCubit extends Cubit<AttendanceState> {
   Future<void> _init() async {
     final ports = await _arduinoRepo.getAvailablePorts();
 
-    emit(AttendanceStateDisconnected(availablePorts: ports));
+    if (ports.length == 1) {
+      await connect(ports.single);
+    } else {
+      emit(AttendanceStateDisconnected(availablePorts: ports));
+    }
   }
 
   Future<void> connect(String portName) async {
@@ -39,8 +43,9 @@ class AttendanceCubit extends Cubit<AttendanceState> {
           students: _students,
         ),
       );
+      await stream.firstWhere((state) => state is AttendanceStateConnected);
       // Sync enrolled fingerprints from Arduino EEPROM
-      // await loadEnrolledFingerprints();
+      await loadEnrolledFingerprints();
     } else {
       final ports = await _arduinoRepo.getAvailablePorts();
       emit(AttendanceStateDisconnected(availablePorts: ports));
@@ -206,8 +211,8 @@ class AttendanceCubit extends Cubit<AttendanceState> {
     final currentState = state;
     if (currentState is! AttendanceStateConnected) return;
 
-    emit(currentState.copyWith(isProcessing: true, clearMessage: true));
     await _arduinoRepo.sendCommand(const TakeAttendanceCommand());
+    emit(currentState.copyWith(isProcessing: true, clearMessage: true));
   }
 
   Future<void> enrollFingerprint(int slotNumber, String studentId) async {
@@ -301,5 +306,10 @@ class AttendanceCubit extends Cubit<AttendanceState> {
     await _responseSubscription?.cancel();
     await _arduinoRepo.dispose();
     await super.close();
+  }
+
+  Future<void> disconnect() async {
+    await _arduinoRepo.disconnect();
+    await _init();
   }
 }

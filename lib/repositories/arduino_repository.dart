@@ -27,16 +27,7 @@ class ArduinoRepository {
   Future<bool> connect(String portName) async {
     try {
       final port = SerialPort(portName);
-
-      final config = SerialPortConfig()
-        ..baudRate = 9600
-        ..bits = 8
-        ..stopBits = 1
-        ..parity = SerialPortParity.none
-        ..dtr = SerialPortDtr.on
-        ..rts = SerialPortRts.on;
-
-      port.config = config;
+      _port = port;
 
       final canControlArduino = port.openReadWrite();
 
@@ -44,6 +35,14 @@ class ArduinoRepository {
         _log('Failed to open port: ${SerialPort.lastError}');
         return false;
       }
+
+      port.config = SerialPortConfig()
+        ..baudRate = 9600
+        ..bits = 8
+        ..stopBits = 1
+        ..parity = SerialPortParity.none
+        ..dtr = SerialPortDtr.on
+        ..rts = SerialPortRts.on;
 
       _log('Port opened successfully: $portName');
 
@@ -60,8 +59,6 @@ class ArduinoRepository {
         },
       );
 
-      _port = port;
-
       return true;
     } catch (e) {
       _log('Connection error: $e');
@@ -70,9 +67,7 @@ class ArduinoRepository {
   }
 
   void _handleData(Uint8List data) {
-    _log('Received raw data: ${data.length} bytes');
     final text = utf8.decode(data);
-    _log('Decoded text: $text');
     _buffer += text;
 
     final lines = _buffer.split('\n');
@@ -199,7 +194,7 @@ class ArduinoRepository {
     }
 
     final data = utf8.encode('${command.command}\n');
-    port.write(Uint8List.fromList(data));
+    port.write(Uint8List.fromList(data), timeout: 1000);
   }
 
   Future<void> disconnect() async {

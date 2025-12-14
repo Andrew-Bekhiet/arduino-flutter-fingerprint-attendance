@@ -16,10 +16,19 @@ class AttendanceScreen extends StatelessWidget {
       appBar: AppBar(
         title: const Text('Fingerprint Attendance Tracker'),
         elevation: 2,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.clear),
+            onPressed: context.read<AttendanceCubit>().disconnect,
+          ),
+        ],
       ),
       body: BlocConsumer<AttendanceCubit, AttendanceState>(
         listener: (context, state) {
-          if (state is! AttendanceStateConnected) return;
+          if (state is! AttendanceStateConnected ||
+              (state.message?.isEmpty ?? true)) {
+            return;
+          }
 
           final cubit = context.read<AttendanceCubit>();
 
