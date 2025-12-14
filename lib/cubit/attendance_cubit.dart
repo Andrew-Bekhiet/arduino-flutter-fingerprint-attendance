@@ -51,6 +51,7 @@ class AttendanceCubit extends Cubit<AttendanceState> {
         AttendanceStateConnected(
           records: _attendanceRecords,
           students: _students,
+          isProcessing: true,
         ),
       );
       await stream.firstWhere((state) => state is AttendanceStateConnected);

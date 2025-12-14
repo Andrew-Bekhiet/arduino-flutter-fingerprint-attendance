@@ -4,6 +4,7 @@ import 'package:fingerprint_attendance/widgets/clear_records_dialog.dart';
 import 'package:fingerprint_attendance/widgets/delete_all_fingerprints_dialog.dart';
 import 'package:fingerprint_attendance/widgets/delete_fingerprint_dialog.dart';
 import 'package:fingerprint_attendance/widgets/enroll_fingerprint_dialog.dart';
+import 'package:fingerprint_attendance/widgets/enrolled_students_dialog.dart';
 import 'package:fingerprint_attendance/widgets/stat_card.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -104,6 +105,10 @@ class ControlPanel extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           StatCard(
+            onTap: () => showDialog<void>(
+              context: context,
+              builder: (dialogContext) => const EnrolledStudentsDialog(),
+            ),
             label: 'Enrolled Students',
             value: state.enrolledStudentsCount.toString(),
             icon: Icons.people,
