@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:developer' as developer;
 import 'dart:typed_data';
 
 import 'package:fingerprint_attendance/repositories/arduino_models/arduino_command.dart';
@@ -11,6 +12,11 @@ class ArduinoRepository {
   SerialPortReader? _portReader;
   StreamSubscription<Uint8List>? _readerSubscription;
   final _responseController = StreamController<ArduinoResponse>.broadcast();
+  String _buffer = '';
+
+  void _log(String message) {
+    developer.log(message, name: 'ArduinoRepository');
+  }
 
   Stream<ArduinoResponse> get responses => _responseController.stream;
 
@@ -26,35 +32,57 @@ class ArduinoRepository {
         ..baudRate = 9600
         ..bits = 8
         ..stopBits = 1
-        ..parity = SerialPortParity.none;
+        ..parity = SerialPortParity.none
+        ..dtr = SerialPortDtr.on
+        ..rts = SerialPortRts.on;
 
       port.config = config;
 
       final canControlArduino = port.openReadWrite();
 
       if (!canControlArduino) {
+        _log('Failed to open port: ${SerialPort.lastError}');
         return false;
       }
 
+      _log('Port opened successfully: $portName');
+
       _portReader = SerialPortReader(port);
-      _readerSubscription = _portReader?.stream.listen(_handleData);
+      _readerSubscription = _portReader?.stream.listen(
+        _handleData,
+        onError: (error) {
+          _log('Stream error: $error');
+          _responseController
+              .add(ErrorResponse(message: 'Serial error: $error'));
+        },
+        onDone: () {
+          _log('Stream closed');
+        },
+      );
 
       _port = port;
 
       return true;
     } catch (e) {
+      _log('Connection error: $e');
       return false;
     }
   }
 
   void _handleData(Uint8List data) {
+    _log('Received raw data: ${data.length} bytes');
     final text = utf8.decode(data);
+    _log('Decoded text: $text');
+    _buffer += text;
 
-    final lines = text.split('\n');
+    final lines = _buffer.split('\n');
+    _buffer = lines.last;
 
-    for (final line in lines) {
-      if (line.trim().isNotEmpty) {
-        _parseResponse(line.trim());
+    for (var i = 0; i < lines.length - 1; i++) {
+      final line = lines[i].trim();
+      if (line.isNotEmpty) {
+        _log('Parsing line: $line');
+        _parseResponse(line);
       }
     }
   }
@@ -81,6 +109,26 @@ class ArduinoRepository {
           const PlaceSameFingerResponse(),
         );
 
+      case 'NOT_FOUND':
+        _responseController.add(
+          const FingerprintNotFoundResponse(),
+        );
+
+      case 'DELETED_ALL':
+        _responseController.add(
+          const AllFingerprintsDeletedResponse(),
+        );
+
+      case 'LIST_START':
+        _responseController.add(
+          const ListStartResponse(),
+        );
+
+      case 'LIST_END':
+        _responseController.add(
+          const ListEndResponse(),
+        );
+
       case _ when line.startsWith('ENROLLED:'):
         final parts = line.replaceFirst('ENROLLED:', '').split(':');
 
@@ -95,10 +143,27 @@ class ArduinoRepository {
         );
 
       case _ when line.startsWith('FOUND:'):
-        final slotNumber = int.parse(line.replaceFirst('FOUND:', ''));
+        final parts = line.replaceFirst('FOUND:', '').split(':');
+        final slotNumber = int.parse(parts[0]);
+        final studentId = parts[1];
 
         _responseController.add(
-          FingerprintFoundResponse(slotNumber: slotNumber),
+          FingerprintFoundResponse(
+            slotNumber: slotNumber,
+            studentId: studentId,
+          ),
+        );
+
+      case _ when line.startsWith('SLOT:'):
+        final parts = line.replaceFirst('SLOT:', '').split(':');
+        final slotNumber = int.parse(parts[0]);
+        final studentId = parts[1];
+
+        _responseController.add(
+          SlotInfoResponse(
+            slotNumber: slotNumber,
+            studentId: studentId,
+          ),
         );
 
       case _ when line.startsWith('DELETED:'):
@@ -123,11 +188,6 @@ class ArduinoRepository {
       case _ when line.startsWith('ERROR:'):
         _responseController.add(
           ErrorResponse(message: line.replaceFirst('ERROR:', '')),
-        );
-
-      default:
-        _responseController.add(
-          ErrorResponse(message: 'Unknown response: $line'),
         );
     }
   }

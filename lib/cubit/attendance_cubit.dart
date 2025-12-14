@@ -39,10 +39,20 @@ class AttendanceCubit extends Cubit<AttendanceState> {
           students: _students,
         ),
       );
+      // Sync enrolled fingerprints from Arduino EEPROM
+      // await loadEnrolledFingerprints();
     } else {
       final ports = await _arduinoRepo.getAvailablePorts();
       emit(AttendanceStateDisconnected(availablePorts: ports));
     }
+  }
+
+  Future<void> loadEnrolledFingerprints() async {
+    final currentState = state;
+    if (currentState is! AttendanceStateConnected) return;
+
+    emit(currentState.copyWith(isProcessing: true, clearMessage: true));
+    await _arduinoRepo.sendCommand(const ListEnrolledCommand());
   }
 
   void _handleResponse(ArduinoResponse response) {
@@ -63,30 +73,35 @@ class AttendanceCubit extends Cubit<AttendanceState> {
         emit(currentState.copyWith(message: 'Place same finger again...'));
 
       case FingerprintFoundResponse():
-        final studentId = _slotToStudentId[response.slotNumber];
+        // Arduino now sends studentId directly from EEPROM
+        final studentId = response.studentId;
 
-        if (studentId != null) {
-          _attendanceRecords.add(
-            AttendanceRecord(
-              studentId: studentId,
-              timestamp: DateTime.now(),
-            ),
+        _attendanceRecords.add(
+          AttendanceRecord(
+            studentId: studentId,
+            timestamp: DateTime.now(),
+          ),
+        );
+
+        // Also update local cache if we don't have this student
+        if (!_students.containsKey(studentId)) {
+          final student = Student(
+            id: studentId,
+            name: 'Student $studentId',
+            slotNumber: response.slotNumber,
           );
-          emit(
-            currentState.copyWith(
-              records: List.from(_attendanceRecords),
-              message: 'Attendance recorded for $studentId',
-              isProcessing: false,
-            ),
-          );
-        } else {
-          emit(
-            currentState.copyWith(
-              message: 'Fingerprint not registered in app',
-              isProcessing: false,
-            ),
-          );
+          _students[studentId] = student;
+          _slotToStudentId[response.slotNumber] = studentId;
         }
+
+        emit(
+          currentState.copyWith(
+            records: List.from(_attendanceRecords),
+            students: Map.from(_students),
+            message: 'Attendance recorded for $studentId',
+            isProcessing: false,
+          ),
+        );
 
       case FingerprintEnrolledResponse():
         final student = Student(
@@ -136,6 +151,33 @@ class AttendanceCubit extends Cubit<AttendanceState> {
         emit(
           currentState.copyWith(
             message: 'Fingerprint not recognized',
+            isProcessing: false,
+          ),
+        );
+
+      case ListStartResponse():
+        // Clear local cache before receiving list from Arduino
+        _students.clear();
+        _slotToStudentId.clear();
+        emit(
+          currentState.copyWith(message: 'Loading enrolled fingerprints...'),
+        );
+
+      case SlotInfoResponse():
+        // Arduino sends enrolled fingerprint info from EEPROM
+        final student = Student(
+          id: response.studentId,
+          name: 'Student ${response.studentId}',
+          slotNumber: response.slotNumber,
+        );
+        _students[response.studentId] = student;
+        _slotToStudentId[response.slotNumber] = response.studentId;
+
+      case ListEndResponse():
+        emit(
+          currentState.copyWith(
+            students: Map.from(_students),
+            message: 'Loaded ${_students.length} enrolled fingerprints',
             isProcessing: false,
           ),
         );
@@ -247,6 +289,11 @@ class AttendanceCubit extends Cubit<AttendanceState> {
     if (currentState is! AttendanceStateConnected) return;
 
     emit(currentState.copyWith(clearMessage: true));
+  }
+
+  @override
+  void emit(AttendanceState state) {
+    super.emit(state);
   }
 
   @override

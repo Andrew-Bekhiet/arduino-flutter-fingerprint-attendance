@@ -34,8 +34,15 @@ final class DeleteFingerprintCommand extends ArduinoCommand {
 }
 
 final class DeleteAllFingerprintsCommand extends ArduinoCommand {
+  const DeleteAllFingerprintsCommand();
+
   @override
   String get command => 'x';
+}
 
-  const DeleteAllFingerprintsCommand();
+final class ListEnrolledCommand extends ArduinoCommand {
+  const ListEnrolledCommand();
+
+  @override
+  String get command => 'l';
 }
