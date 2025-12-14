@@ -32,6 +32,7 @@ class AttendanceTable extends StatelessWidget {
     }
 
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Container(
           padding: const EdgeInsets.all(16),
@@ -59,37 +60,34 @@ class AttendanceTable extends StatelessWidget {
         ),
         Expanded(
           child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: SingleChildScrollView(
-              child: DataTable(
-                headingRowColor: WidgetStateProperty.all(
-                  Theme.of(context).colorScheme.surfaceContainerHigh,
-                ),
-                columns: const [
-                  DataColumn(label: Text('#')),
-                  DataColumn(label: Text('Student ID')),
-                  DataColumn(label: Text('Student Name')),
-                  DataColumn(label: Text('Date')),
-                  DataColumn(label: Text('Time')),
-                ],
-                rows: state.sortedRecords.asMap().entries.map((entry) {
-                  final index = entry.key;
-                  final record = entry.value;
-                  final student = state.students[record.studentId];
-                  final dateFormat = DateFormat('MMM dd, yyyy');
-                  final timeFormat = DateFormat('hh:mm:ss a');
-
-                  return DataRow(
-                    cells: [
-                      DataCell(Text('${index + 1}')),
-                      DataCell(Text(record.studentId)),
-                      DataCell(Text(student?.name ?? 'Unknown')),
-                      DataCell(Text(dateFormat.format(record.timestamp))),
-                      DataCell(Text(timeFormat.format(record.timestamp))),
-                    ],
-                  );
-                }).toList(),
+            child: DataTable(
+              headingRowColor: WidgetStateProperty.all(
+                Theme.of(context).colorScheme.surfaceContainerHigh,
               ),
+              columns: const [
+                DataColumn(label: Text('#')),
+                DataColumn(label: Text('Student ID')),
+                DataColumn(label: Text('Student Name')),
+                DataColumn(label: Text('Date')),
+                DataColumn(label: Text('Time')),
+              ],
+              rows: state.sortedRecords.asMap().entries.map((entry) {
+                final index = entry.key;
+                final record = entry.value;
+                final student = state.students[record.studentId];
+                final dateFormat = DateFormat('MMM dd, yyyy');
+                final timeFormat = DateFormat('hh:mm:ss a');
+
+                return DataRow(
+                  cells: [
+                    DataCell(Text('${index + 1}')),
+                    DataCell(Text(record.studentId)),
+                    DataCell(Text(student?.name ?? 'Unknown')),
+                    DataCell(Text(dateFormat.format(record.timestamp))),
+                    DataCell(Text(timeFormat.format(record.timestamp))),
+                  ],
+                );
+              }).toList(),
             ),
           ),
         ),

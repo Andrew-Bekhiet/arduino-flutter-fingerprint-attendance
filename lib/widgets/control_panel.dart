@@ -14,7 +14,7 @@ class ControlPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isProcessing = false ?? state.isProcessing;
+    final isProcessing = state.isProcessing;
 
     return DecoratedBox(
       decoration: BoxDecoration(
@@ -98,6 +98,15 @@ class ControlPanel extends StatelessWidget {
             value: state.todayAttendanceCount.toString(),
             icon: Icons.today,
           ),
+          const Divider(height: 32),
+          if (state case AttendanceStateConnected(:final message?)
+              when message.isNotEmpty) ...[
+            Text(
+              message,
+              style: Theme.of(context).textTheme.bodyMedium,
+              textAlign: TextAlign.center,
+            ),
+          ],
           if (state.isProcessing) ...[
             const Divider(height: 32),
             const LinearProgressIndicator(),

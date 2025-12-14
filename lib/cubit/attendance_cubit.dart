@@ -289,9 +289,12 @@ class AttendanceCubit extends Cubit<AttendanceState> {
     );
   }
 
-  void clearMessage() {
+  void _clearMessage(String message) {
     final currentState = state;
-    if (currentState is! AttendanceStateConnected) return;
+    if (currentState is! AttendanceStateConnected ||
+        currentState.message != message) {
+      return;
+    }
 
     emit(currentState.copyWith(clearMessage: true));
   }
@@ -299,6 +302,12 @@ class AttendanceCubit extends Cubit<AttendanceState> {
   @override
   void emit(AttendanceState state) {
     super.emit(state);
+
+    if (state case AttendanceStateConnected(:final message?)
+        when message.isNotEmpty) {
+      Future.delayed(const Duration(seconds: 2))
+          .then((_) => _clearMessage(message));
+    }
   }
 
   @override

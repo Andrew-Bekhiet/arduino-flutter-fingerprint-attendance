@@ -23,24 +23,7 @@ class AttendanceScreen extends StatelessWidget {
           ),
         ],
       ),
-      body: BlocConsumer<AttendanceCubit, AttendanceState>(
-        listener: (context, state) {
-          if (state is! AttendanceStateConnected ||
-              (state.message?.isEmpty ?? true)) {
-            return;
-          }
-
-          final cubit = context.read<AttendanceCubit>();
-
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(state.message ?? ''),
-              duration: const Duration(seconds: 2),
-            ),
-          );
-
-          Future.delayed(const Duration(seconds: 2), cubit.clearMessage);
-        },
+      body: BlocBuilder<AttendanceCubit, AttendanceState>(
         builder: (_, state) => switch (state) {
           AttendanceStateDisconnected() => DisconnectedView(state: state),
           AttendanceStateConnecting() => const ConnectingView(),
