@@ -24,7 +24,7 @@ class AttendanceCubit extends Cubit<AttendanceState> {
 
   AttendanceCubit(this._arduinoRepo, this._storageRepo)
       : super(const AttendanceStateDisconnected()) {
-    _init();
+    _init(false);
   }
 
   Future<void> _init([bool connectNow = true]) async {
@@ -187,6 +187,9 @@ class AttendanceCubit extends Cubit<AttendanceState> {
           _students.remove(studentEntry.key);
 
           final student = studentEntry.value;
+          _attendanceRecords = _attendanceRecords
+              .where((record) => record.studentId != student.id)
+              .toList();
 
           await _storageRepo.deleteStudentName(student.id);
 
@@ -363,6 +366,8 @@ class AttendanceCubit extends Cubit<AttendanceState> {
   void clearRecords() {
     final currentState = state;
     if (currentState is! AttendanceStateConnected) return;
+
+    _storageRepo.clearAllAttendanceRecords();
 
     _attendanceRecords = [];
     emit(

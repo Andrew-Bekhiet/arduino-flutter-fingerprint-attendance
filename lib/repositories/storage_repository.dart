@@ -145,4 +145,12 @@ class StorageRepository {
   Future<void> dispose() async {
     await Hive.close();
   }
+
+  Future<void> clearAllAttendanceRecords() async {
+    for (final dateKey in _attendanceDatesBox.keys) {
+      final date = DateTime.parse(dateKey.toString());
+      await clearAttendanceForDate(date);
+    }
+    await _attendanceDatesBox.clear();
+  }
 }
